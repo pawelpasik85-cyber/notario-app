@@ -7,7 +7,7 @@
  *   under the same name, so the cache is always correct.
  * Data never goes through here: notes live in the device's IndexedDB.
  */
-const CACHE = 'notario-v2';
+const CACHE = 'notario-v3';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './apple-touch-icon.png', './icon-192.png'];
 
 self.addEventListener('install', (event) => {
@@ -26,14 +26,19 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  if (url.origin !== self.location.origin) return; // e.g. future sync server: never cached
+  if (url.origin !== self.location.origin) return; // e.g. the sync server: never cached
+  // Downloads (Android app, big files) go straight to the network, never through the cache.
+  if (/\.(apk|zip|pdf)$/i.test(url.pathname)) return;
 
   if (req.mode === 'navigate') {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put('./index.html', copy));
+          // Only the app page itself is kept for offline use.
+          if (res.ok && (res.headers.get('content-type') || '').includes('text/html')) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put('./index.html', copy));
+          }
           return res;
         })
         .catch(() => caches.match('./index.html').then((r) => r || caches.match('./'))),
