@@ -7,7 +7,7 @@
  *   under the same name, so the cache is always correct.
  * Data never goes through here: notes live in the device's IndexedDB.
  */
-const CACHE = 'notario-v1';
+const CACHE = 'notario-v2';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './apple-touch-icon.png', './icon-192.png'];
 
 self.addEventListener('install', (event) => {
