@@ -7,7 +7,7 @@
  *   under the same name, so the cache is always correct.
  * Data never goes through here: notes live in the device's IndexedDB.
  */
-const CACHE = 'notario-v3';
+const CACHE = 'notario-v4';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './apple-touch-icon.png', './icon-192.png'];
 
 self.addEventListener('install', (event) => {
@@ -58,4 +58,30 @@ self.addEventListener('fetch', (event) => {
       }),
     ),
   );
+});
+
+// Reminders: tapping a notification opens the app on that entry.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const itemId = event.notification.data && event.notification.data.itemId;
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      for (const c of list) {
+        if ('focus' in c) {
+          if (itemId) c.postMessage({ type: 'notario-open', itemId });
+          return c.focus();
+        }
+      }
+      return self.clients.openWindow(itemId ? `./#open=${itemId}` : './');
+    }),
+  );
+});
+
+// Reminders sent from the server while the app is closed (Web Push).
+self.addEventListener('push', (event) => {
+  let d = {};
+  try { d = event.data ? event.data.json() : {}; } catch { d = { title: event.data && event.data.text() }; }
+  event.waitUntil(self.registration.showNotification(d.title || 'Notario', {
+    body: d.body || '', tag: d.tag, icon: './icon-192.png', badge: './icon-192.png', data: { itemId: d.itemId || null },
+  }));
 });
