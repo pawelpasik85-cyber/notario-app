@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Widżet Notario</title>
+<style>
+  :root { color-scheme: dark; --bg: #050a18; --card: #0e1628; --line: rgba(255,255,255,.1); --text: #e8ecf4; --muted: #9aa6ba; --accent: #8b5cf6; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 20px 16px 48px; }
+  main { max-width: 560px; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 4px 0 4px; }
+  .lead { color: var(--muted); margin: 0 0 20px; }
+  ol { padding: 0; margin: 0; list-style: none; counter-reset: s; display: grid; gap: 12px; }
+  li { counter-increment: s; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px 14px 14px 52px; position: relative; }
+  li::before { content: counter(s); position: absolute; left: 14px; top: 14px; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 700; display: grid; place-items: center; font-size: 14px; }
+  li b { color: #fff; }
+  a { color: #c4b5fd; }
+  button { margin-top: 10px; width: 100%; height: 46px; border: 0; border-radius: 12px; background: linear-gradient(120deg, #ec4899, #8b5cf6); color: #fff; font: inherit; font-weight: 700; }
+  button.done { background: #16a34a; }
+  code { background: rgba(255,255,255,.08); padding: 1px 6px; border-radius: 6px; }
+  .tip { margin-top: 18px; color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>📅 Widżet Notario na iPhone'a</h1>
+  <p class="lead">Kalendarz i Twoje dodatkowe kalendarze (Zlecenia, Praca, Studia…) na ekranie głównym. Kilka widżetów położonych na sobie przesuwasz palcem.</p>
+  <ol>
+    <li>Zainstaluj darmową aplikację <b>Scriptable</b> z App Store: <a href="https://apps.apple.com/app/scriptable/id1405459188">otwórz w App Store</a>.</li>
+    <li>Skopiuj kod instalatora:
+      <button id="copy">Kopiuj kod widżetu</button>
+    </li>
+    <li>Otwórz Scriptable, stuknij <b>+</b> (prawy górny róg), wklej kod. Stuknij nazwę u góry i nazwij skrypt <b>Notario</b>. Stuknij <b>Gotowe</b>.</li>
+    <li>Stuknij skrypt <b>Notario</b>, aby go uruchomić, i zaloguj się tym samym kontem co w aplikacji. Zobaczysz listę swoich kalendarzy i podgląd.</li>
+    <li>Na ekranie głównym przytrzymaj puste miejsce → <b>Edytuj</b> → <b>Dodaj widżet</b> → <b>Scriptable</b> → wybierz <b>duży</b> rozmiar → <b>Dodaj widżet</b>.</li>
+    <li>Przytrzymaj widżet → <b>Edytuj widżet</b>: Script = <b>Notario</b>, Parameter = nazwa kalendarza, np. <code>Kalendarz</code>, <code>Zlecenia</code>, <code>Praca</code>.</li>
+    <li>Dodaj tak samo widżet dla każdego kalendarza, a potem <b>przeciągnij jeden widżet na drugi</b> — powstanie stos. Przesuwasz go palcem w górę i w dół, żeby przełączać kalendarze.</li>
+  </ol>
+  <p class="tip">Widżet odświeża się sam co kilkanaście minut (o dokładnej porze decyduje iOS). Dane są czytane z Twojego konta tylko do odczytu; hasło nie jest nigdzie zapisywane.</p>
+</main>
+<script>
+  const btn = document.getElementById('copy');
+  btn.addEventListener('click', async () => {
+    try {
+      const code = await (await fetch('instalator.js', { cache: 'no-store' })).text();
+      await navigator.clipboard.writeText(code);
+      btn.textContent = 'Skopiowano ✓ — wklej w Scriptable';
+      btn.classList.add('done');
+    } catch (e) {
+      btn.textContent = 'Nie udało się skopiować — otwórz instalator.js i skopiuj ręcznie';
+      location.href = 'instalator.js';
+    }
+  });
+</script>
+</body>
+</html>
