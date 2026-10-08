@@ -264,11 +264,11 @@ module.exports = async function run(core) {
   }
   if (!snap) {
     const w = messageWidget(tok ? 'Brak połączenia z serwerem. Spróbuj później.' : 'Otwórz Scriptable i uruchom skrypt „Notario”, aby się zalogować.');
-    if (config.runningInWidget) Script.setWidget(w); else await w.presentMedium();
+    if (config.runsInWidget) Script.setWidget(w); else await w.presentMedium();
     return;
   }
 
-  if (config.runningInWidget) {
+  if (config.runsInWidget) {
     Script.setWidget(buildWidget(snap, pickPage(snap, args.widgetParameter), family, note));
     return;
   }
