@@ -158,15 +158,15 @@ function holidaysOf(year) {
   const hit = cache.get(year);
   if (hit) return hit;
   const out = /* @__PURE__ */ new Map();
-  const add = (date, name, dayOff, occasion = false) => {
+  const add2 = (date, name, dayOff, occasion = false) => {
     const prev = out.get(date);
     out.set(date, prev ? { name: `${prev.name} \xB7 ${name}`, dayOff: prev.dayOff || dayOff, occasion: !!prev.occasion && occasion } : { name, dayOff, occasion });
   };
-  const fixed = (m, d, name, dayOff) => add(`${year}-${pad3(m)}-${pad3(d)}`, name, dayOff);
+  const fixed = (m, d, name, dayOff) => add2(`${year}-${pad3(m)}-${pad3(d)}`, name, dayOff);
   const e = easter(year);
   const fromEaster = (days, name, dayOff) => {
     const d = new Date(e.getFullYear(), e.getMonth(), e.getDate() + days);
-    add(iso(d), name, dayOff);
+    add2(iso(d), name, dayOff);
   };
   fixed(1, 1, "Nowy Rok", true);
   fixed(1, 6, "Trzech Kr\xF3li (Objawienie Pa\u0144skie)", true);
@@ -192,11 +192,11 @@ function holidaysOf(year) {
   fixed(11, 2, "Zaduszki", false);
   fixed(12, 8, "Niepokalane Pocz\u0119cie NMP", false);
   if (year < 2025) fixed(12, 24, "Wigilia Bo\u017Cego Narodzenia", false);
-  const occ = (m, d, name) => add(`${year}-${pad3(m)}-${pad3(d)}`, name, false, true);
+  const occ = (m, d, name) => add2(`${year}-${pad3(m)}-${pad3(d)}`, name, false, true);
   occ(1, 21, "Dzie\u0144 Babci");
   occ(1, 22, "Dzie\u0144 Dziadka");
   occ(2, 14, "Walentynki");
-  add(iso(new Date(e.getFullYear(), e.getMonth(), e.getDate() - 52)), "T\u0142usty Czwartek", false, true);
+  add2(iso(new Date(e.getFullYear(), e.getMonth(), e.getDate() - 52)), "T\u0142usty Czwartek", false, true);
   occ(3, 8, "Dzie\u0144 Kobiet");
   occ(4, 1, "Prima aprilis");
   occ(5, 26, "Dzie\u0144 Matki");
@@ -330,6 +330,11 @@ function push(days, d, m) {
   const list = (_a = days[d]) != null ? _a : days[d] = [];
   if (list.length < 3 && !list.some((x) => x.c === m.c && x.code === m.code)) list.push(m);
 }
+function add(list, d, e) {
+  var _a;
+  const l = (_a = list[d]) != null ? _a : list[d] = [];
+  if (l.length < 10) l.push(e);
+}
 function eachDay(from, to, lo, hi, fn) {
   let d = from < lo ? lo : from;
   const end = to > hi ? hi : to;
@@ -337,14 +342,24 @@ function eachDay(from, to, lo, hi, fn) {
 }
 var plural = (n, one, few, many) => n === 1 ? one : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? few : many;
 function buildSnapshot(input) {
-  var _a, _b, _c, _d;
+  var _a, _b, _c, _d, _e, _f, _g;
   const { today } = input;
   const { lo, hi } = widgetRange(today);
   const off = daysOffBetween(lo, hi).map((h) => h.date);
   const mainDays = {};
-  for (const e of input.main) {
+  const mainList = {};
+  const sorted = [...input.main].sort((a, b) => {
+    var _a2, _b2;
+    return ((_a2 = a.start) != null ? _a2 : a.due).localeCompare((_b2 = b.start) != null ? _b2 : b.due);
+  });
+  for (const e of sorted) {
     if (e.type === "task" && e.done) continue;
-    eachDay(((_a = e.start) != null ? _a : e.due).slice(0, 10), e.due.slice(0, 10), lo, hi, (d) => push(mainDays, d, { c: e.color }));
+    const first = ((_a = e.start) != null ? _a : e.due).slice(0, 10);
+    const at = (_b = e.start) != null ? _b : e.due;
+    eachDay(first, e.due.slice(0, 10), lo, hi, (d) => {
+      push(mainDays, d, { c: e.color });
+      add(mainList, d, { t: e.title || "Bez tytu\u0142u", c: e.color, time: d === first && at.length > 10 ? at.slice(11, 16) : void 0, s: e.type === "task" ? "zadanie" : void 0 });
+    });
   }
   const todayTasks = input.main.filter((e) => e.type === "task" && !e.done && e.due.slice(0, 10) === today).length;
   const next2 = input.main.filter((e) => e.type === "event" && e.due.slice(0, 10) >= today).sort((a, b) => {
@@ -364,11 +379,13 @@ function buildSnapshot(input) {
     days: mainDays,
     off,
     info: todayTasks ? `Dzi\u015B ${todayTasks} ${plural(todayTasks, "zadanie", "zadania", "zada\u0144")}` : "Dzi\u015B bez zada\u0144",
-    next: next2
+    next: next2,
+    list: mainList
   }];
   for (const cal of input.calendars) {
     const all = input.orders.filter((o) => o.calendarId === cal.id && o.status !== "cancelled");
     const days = {};
+    const dayList = {};
     let info;
     let list;
     const kind = cal.kind === "study" || cal.kind === "work" ? cal.kind : "orders";
@@ -377,7 +394,9 @@ function buildSnapshot(input) {
       for (const o of abs) {
         const type = LEAVE.get(o.tag);
         eachDay(o.startDate, o.dueDate, lo, hi, (d) => {
-          if (counts(type, d)) push(days, d, { c: type.color, code: type.code });
+          if (!counts(type, d)) return;
+          push(days, d, { c: type.color, code: type.code });
+          add(dayList, d, { t: type.name, c: type.color, s: type.code });
         });
       }
       const sum = leaveSummary(abs, +today.slice(0, 4), cal.leave, today);
@@ -393,9 +412,11 @@ function buildSnapshot(input) {
       const isLate = (o) => (o.status === "new" || o.status === "in_progress") && o.dueDate < today;
       for (const o of all) {
         const end = o.shipDate && o.shipDate > o.dueDate ? o.shipDate : o.dueDate;
+        const c = isLate(o) ? "#ef4444" : (_d = (_c = STATUS_COLOR[o.status]) != null ? _c : cal.color) != null ? _d : "#f97316";
         eachDay(o.startDate, end, lo, hi, (d) => {
-          var _a2, _b2;
-          return push(days, d, { c: isLate(o) ? "#ef4444" : (_b2 = (_a2 = STATUS_COLOR[o.status]) != null ? _a2 : cal.color) != null ? _b2 : "#f97316" });
+          push(days, d, { c });
+          const s = d === o.dueDate ? "termin" : d === o.shipDate ? "wysy\u0142ka" : d === o.startDate ? "start" : d > o.dueDate ? "do wysy\u0142ki" : "w toku";
+          add(dayList, d, { t: `${o.tag ? `${o.tag}: ` : ""}${o.title}`, c, s });
         });
       }
       const late = active.filter(isLate).length;
@@ -410,9 +431,9 @@ function buildSnapshot(input) {
         };
       });
     }
-    pages.push({ id: cal.id, name: cal.name, icon: (_b = cal.icon) != null ? _b : "\u2B50", color: (_c = cal.color) != null ? _c : "#f97316", kind, days, off, info, next: list });
+    pages.push({ id: cal.id, name: cal.name, icon: (_e = cal.icon) != null ? _e : "\u2B50", color: (_f = cal.color) != null ? _f : "#f97316", kind, days, off, info, next: list, list: dayList });
   }
-  return { v: 1, made: ((_d = input.now) != null ? _d : /* @__PURE__ */ new Date()).toISOString(), today, pages };
+  return { v: 1, made: ((_g = input.now) != null ? _g : /* @__PURE__ */ new Date()).toISOString(), today, pages };
 }
 
 // src/widget/from-records.ts

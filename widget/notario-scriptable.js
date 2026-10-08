@@ -194,7 +194,7 @@ function buildWidget(snap, page, family, note) {
   g.startPoint = new Point(0, 0); g.endPoint = new Point(1, 1);
   w.backgroundGradient = g;
   w.setPadding(12, 12, 10, 12);
-  w.url = APP_URL;
+  w.url = `scriptable:///run/${encodeURIComponent(Script.name())}?cal=${encodeURIComponent(page.id)}`;
   w.refreshAfterDate = new Date(Date.now() + 15 * 60 * 1000);
 
   const head = w.addStack();
@@ -239,8 +239,113 @@ function messageWidget(text) {
   return w;
 }
 
+
+// ---------- full-screen preview (opened by tapping the widget) ----------
+// Swipe left / right = the next / previous calendar; ‹ › = month; tap a day = what is on it.
+function viewerHtml(snap, startId) {
+  const data = JSON.stringify({ snap, startId, app: APP_URL }).replace(/</g, '\\u003c');
+  return '<!doctype html><html lang="pl"><head><meta charset="utf-8">' +
+  '<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">' +
+  '<style>' +
+  ':root{color-scheme:dark}html{background:#0b1222}*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}' +
+  'body{margin:0;min-height:100vh;background:#0b1222;color:#e8ecf4;font:15px -apple-system,system-ui,sans-serif;overflow-x:hidden;' +
+  'padding:calc(env(safe-area-inset-top) + 8px) 14px calc(env(safe-area-inset-bottom) + 16px);transition:background .25s}' +
+  '.tabs{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:0 -14px 10px;padding:0 14px}.tabs::-webkit-scrollbar{display:none}' +
+  '.tabs button{flex:none;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#aab4c8;border-radius:999px;padding:7px 12px;font:inherit;font-size:13.5px;font-weight:600}' +
+  '.tabs button.on{color:#fff;border-color:var(--c);background:color-mix(in srgb,var(--c) 35%,transparent)}' +
+  '.dots{text-align:center;color:#56637a;font-size:9px;letter-spacing:4px;margin:-4px 0 6px}.dots b{color:#fff}' +
+  'h1{font-size:22px;margin:4px 0 2px}.info{color:#aab4c8;font-size:13px;margin-bottom:12px}' +
+  '.mh{display:flex;align-items:center;gap:8px;margin-bottom:6px}.mh h2{flex:1;font-size:17px;margin:0}' +
+  '.mh button{width:38px;height:34px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#fff;font-size:20px}' +
+  '.mh button:disabled{opacity:.25}' +
+  '.grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}.dow{text-align:center;font-size:11px;color:#8090a8;padding-bottom:2px}' +
+  '.d{position:relative;height:48px;border-radius:9px;background:rgba(255,255,255,.04);border:0;color:#e8ecf4;font:inherit;font-size:14px;padding:4px 0 0;display:flex;flex-direction:column;align-items:center;gap:3px}' +
+  '.d.o{opacity:.35}.d.we span{color:#9aa6ba}.d.off{background:rgba(255,77,94,.14)}.d.off span{color:#ff6b78;font-weight:700}' +
+  '.d.t span{background:#2f6bff;color:#fff;border-radius:999px;padding:0 7px;font-weight:700}' +
+  '.d.sel{outline:2px solid var(--c);outline-offset:-2px}' +
+  '.d.code{background:var(--m)}.d.code span{color:#fff}.d i{font-style:normal;font-size:10px;font-weight:800;color:#fff;background:var(--m);border-radius:5px;padding:2px 4px;line-height:1}' +
+  '.d.tint{background:color-mix(in srgb,var(--m) 26%,rgba(255,255,255,.03))}' +
+  '.dt{display:flex;gap:3px}.dt em{width:5px;height:5px;border-radius:50%}' +
+  'h3{font-size:15px;margin:16px 0 8px}' +
+  '.row{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:12px;background:rgba(255,255,255,.04);border-left:4px solid var(--c);margin-bottom:6px}' +
+  '.row small{color:#93a3bd;display:block;font-size:12px}.row .w{min-width:62px;color:#93a3bd;font-size:12.5px}' +
+  '.empty{color:#8090a8;font-size:13.5px}' +
+  '.foot{margin-top:18px;display:grid;gap:8px}.foot a{display:block;text-align:center;padding:12px;border-radius:12px;background:rgba(255,255,255,.06);color:#c4b5fd;text-decoration:none;font-weight:600}' +
+  '.hint{color:#6b7891;font-size:12px;text-align:center;margin-top:6px}' +
+  '#page{transition:transform .22s ease,opacity .22s ease}' +
+  '</style></head><body><nav class="tabs" id="tabs"></nav><div class="dots" id="dots"></div><div id="page"></div>' +
+  '<div class="foot"><a id="open" href="#">Otwórz Notario</a><a href="notario:logout" style="color:#f87171">Wyloguj widżet</a></div>' +
+  '<p class="hint">Przesuń palcem w bok, aby przejść do innego kalendarza.</p>' +
+  '<script>var D=' + data + ';' + VIEWER_JS + '</script></body></html>';
+}
+const VIEWER_JS = `
+var S=D.snap,P=S.pages,today=S.today,cur=Math.max(0,P.findIndex(function(p){return p.id===D.startId})),mo=0,sel=null;
+var MONTHS=['Styczeń','Luty','Marzec','Kwiecień','Maj','Czerwiec','Lipiec','Sierpień','Wrzesień','Październik','Listopad','Grudzień'];
+var WD=['nd','pon','wt','śr','czw','pt','sob'];
+function pad(n){return (n<10?'0':'')+n}
+function ymd(d){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function when(d){if(d===today)return 'dziś';var t=new Date(+today.slice(0,4),+today.slice(5,7)-1,+today.slice(8,10)+1);if(d===ymd(t))return 'jutro';var x=new Date(+d.slice(0,4),+d.slice(5,7)-1,+d.slice(8,10));return WD[x.getDay()]+' '+x.getDate()+'.'+d.slice(5,7)}
+function render(dir){
+  var p=P[cur],c=p.color||'#7c5cff';document.documentElement.style.setProperty('--c',c);
+  document.body.style.background='linear-gradient(180deg,'+c+'33 0,#0b1222 260px) no-repeat #0b1222';
+  document.getElementById('tabs').innerHTML=P.map(function(x,i){return '<button data-i="'+i+'" class="'+(i===cur?'on':'')+'" style="--c:'+(x.color||'#7c5cff')+'">'+esc(x.icon)+' '+esc(x.name)+'</button>'}).join('');
+  document.getElementById('dots').innerHTML=P.length>1?P.map(function(x,i){return i===cur?'<b>●</b>':'○'}).join(''):'';
+  var tb=document.querySelector('.tabs .on');if(tb)tb.scrollIntoView({inline:'center',block:'nearest'});
+  var t=new Date(+today.slice(0,4),+today.slice(5,7)-1+mo,1),m=t.getMonth(),lead=(t.getDay()+6)%7,n=new Date(t.getFullYear(),m+1,0).getDate(),weeks=Math.ceil((lead+n)/7);
+  var off={};(p.off||[]).forEach(function(d){off[d]=1});
+  var h='<h1>'+esc(p.icon)+' '+esc(p.name)+'</h1><div class="info">'+esc(p.info)+'</div>';
+  h+='<div class="mh"><h2>'+MONTHS[m]+' '+t.getFullYear()+'</h2><button id="pm" '+(mo<=0?'disabled':'')+'>‹</button><button id="nm" '+(mo>=1?'disabled':'')+'>›</button></div>';
+  h+='<div class="grid">'+['Pn','Wt','Śr','Cz','Pt','So','Nd'].map(function(x){return '<div class="dow">'+x+'</div>'}).join('');
+  for(var k=0;k<weeks*7;k++){
+    var d=new Date(t.getFullYear(),m,1-lead+k),key=ymd(d),mk=(p.days&&p.days[key])||[],m0=mk[0],cls='d';
+    if(d.getMonth()!==m)cls+=' o';if(k%7>=5)cls+=' we';if(off[key])cls+=' off';if(key===today)cls+=' t';if(key===sel)cls+=' sel';
+    var inner='<span>'+d.getDate()+'</span>',st='';
+    if(m0&&m0.code){cls+=' code';st=' style="--m:'+m0.c+'"';inner+='<i>'+esc(m0.code)+'</i>'}
+    else if(m0){cls+=' tint';st=' style="--m:'+m0.c+'"';inner+='<div class="dt">'+mk.slice(0,3).map(function(x){return '<em style="background:'+x.c+'"></em>'}).join('')+'</div>'}
+    h+='<button class="'+cls+'"'+st+' data-d="'+key+'">'+inner+'</button>';
+  }
+  h+='</div>';
+  var rows;
+  if(sel){var l=(p.list&&p.list[sel])||[];h+='<h3>'+when(sel)+'</h3>';rows=l.map(function(e){return '<div class="row" style="--c:'+e.c+'"><div>'+(e.time?'<b>'+e.time+'</b> ':'')+esc(e.t)+(e.s?'<small>'+esc(e.s)+'</small>':'')+'</div></div>'}).join('')||'<p class="empty">Nic tego dnia.</p>'}
+  else{h+='<h3>Najbliższe</h3>';rows=(p.next||[]).filter(function(e){return e.d>=today}).map(function(e){return '<div class="row" style="--c:'+e.c+'"><span class="w">'+when(e.d)+(e.time?'<br>'+e.time:'')+'</span><div>'+(e.s?esc(e.s)+': ':'')+esc(e.t)+'</div></div>'}).join('')||'<p class="empty">Nic zaplanowanego.</p>'}
+  h+=rows;
+  var pg=document.getElementById('page');pg.innerHTML=h;
+  if(dir){pg.style.transition='none';pg.style.transform='translateX('+(dir*40)+'px)';pg.style.opacity='.3';pg.offsetWidth;pg.style.transition='';pg.style.transform='';pg.style.opacity=''}
+  document.getElementById('open').href=D.app+'?cal='+encodeURIComponent(p.id);
+}
+function go(i,dir){if(i<0||i>=P.length)return;cur=i;sel=null;mo=0;render(dir)}
+document.addEventListener('click',function(e){
+  var b=e.target.closest('button');if(!b)return;
+  if(b.dataset.i)go(+b.dataset.i,+b.dataset.i>cur?1:-1);
+  else if(b.id==='pm'){mo=0;sel=null;render(-1)}else if(b.id==='nm'){mo=1;sel=null;render(1)}
+  else if(b.dataset.d){sel=sel===b.dataset.d?null:b.dataset.d;render(0)}
+});
+var sx=null,sy=0;
+document.addEventListener('touchstart',function(e){var t=e.touches[0];sx=t.clientX;sy=t.clientY},{passive:true});
+document.addEventListener('touchend',function(e){if(sx==null)return;var t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;sx=null;
+  if(Math.abs(dx)>50&&Math.abs(dx)>Math.abs(dy)*1.4){if(e.target.closest('.tabs'))return;go(cur+(dx<0?1:-1),dx<0?1:-1)}},{passive:true});
+render(0);
+`;
+
+async function showViewer(snap, startId) {
+  const wv = new WebView();
+  wv.shouldAllowRequest = (req) => {
+    const u = String(req.url || '');
+    if (u.startsWith('notario:logout')) {
+      Keychain.remove(KC_SESSION);
+      wv.loadHTML('<body style="background:#0b1222;color:#e8ecf4;font:17px -apple-system;padding:60px 24px;text-align:center">Wylogowano. Uruchom skrypt Notario ponownie, aby się zalogować.</body>');
+      return false;
+    }
+    if (u.startsWith('http')) { Safari.open(u); return false; }
+    return true;
+  };
+  await wv.loadHTML(viewerHtml(snap, startId));
+  await wv.present(true);
+}
+
 // ---------- main ----------
-module.exports = async function run(core) {
+async function run(core) {
   const fm = FileManager.local();
   const cachePath = fm.joinPath(fm.documentsDirectory(), 'notario-widget-cache.json');
   const family = config.widgetFamily || 'large';
@@ -273,16 +378,9 @@ module.exports = async function run(core) {
     return;
   }
 
-  // Run in the app: preview and the names to type as the widget's parameter.
-  const a = new Alert();
-  a.title = 'Notario — widżet';
-  a.message = 'Kalendarze (wpisz nazwę jako „Parametr” widżetu, a kilka widżetów połóż na sobie, by przesuwać je palcem):\n\n' +
-    snap.pages.map((p, i) => `${i + 1}. ${p.icon} ${p.name}`).join('\n');
-  for (const p of snap.pages) a.addAction(`Podgląd: ${p.name}`);
-  a.addDestructiveAction('Wyloguj');
-  a.addCancelAction('Zamknij');
-  const i = await a.presentSheet();
-  if (i === -1) return;
-  if (i === snap.pages.length) { Keychain.remove(KC_SESSION); return; }
-  await buildWidget(snap, snap.pages[i], 'large', note).presentLarge();
+  // Run in the app (also when the widget is tapped): the full-screen preview.
+  const q = (args.queryParameters || {});
+  await showViewer(snap, q.cal || (snap.pages[0] && snap.pages[0].id));
 };
+run.viewerHtml = viewerHtml;
+module.exports = run;
