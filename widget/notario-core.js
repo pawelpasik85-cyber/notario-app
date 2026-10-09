@@ -342,7 +342,7 @@ function eachDay(from, to, lo, hi, fn) {
 }
 var plural = (n, one, few, many) => n === 1 ? one : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? few : many;
 function buildSnapshot(input) {
-  var _a, _b, _c, _d, _e, _f, _g;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
   const { today } = input;
   const { lo, hi } = widgetRange(today);
   const off = daysOffBetween(lo, hi).map((h) => h.date);
@@ -433,7 +433,16 @@ function buildSnapshot(input) {
     }
     pages.push({ id: cal.id, name: cal.name, icon: (_e = cal.icon) != null ? _e : "\u2B50", color: (_f = cal.color) != null ? _f : "#f97316", kind, days, off, info, next: list, list: dayList });
   }
-  return { v: 1, made: ((_g = input.now) != null ? _g : /* @__PURE__ */ new Date()).toISOString(), today, pages };
+  return { v: 1, made: ((_g = input.now) != null ? _g : /* @__PURE__ */ new Date()).toISOString(), today, pages, tasks: (_i = input.tasks) != null ? _i : tasksOf(input.main, today, (_h = input.now) != null ? _h : /* @__PURE__ */ new Date()) };
+}
+function tasksOf(main, today, now) {
+  const nowLocal = `${today}T${pad6(now.getHours())}:${pad6(now.getMinutes())}`;
+  const tasks = main.filter((e) => e.type === "task");
+  const late = (e) => !e.done && (e.due.length > 10 ? e.due < nowLocal : e.due < today);
+  const todays = tasks.filter((e) => e.due.slice(0, 10) === today && !late(e)).sort((a, b) => Number(a.done) - Number(b.done) || (a.due.length > 10 ? a.due : `${a.due}T99`).localeCompare(b.due.length > 10 ? b.due : `${b.due}T99`));
+  const overdue = tasks.filter(late).sort((a, b) => a.due.localeCompare(b.due));
+  const map = (e) => ({ t: e.title || "Bez tytu\u0142u", c: e.color, time: e.due.length > 10 ? e.due.slice(11, 16) : void 0, done: e.done || void 0, d: e.due.slice(0, 10), pay: e.pay || void 0 });
+  return { today: todays.slice(0, 20).map(map), overdue: overdue.slice(-20).map(map) };
 }
 
 // src/widget/from-records.ts
@@ -454,6 +463,7 @@ function snapshotFromRecords(records, today, now = /* @__PURE__ */ new Date()) {
     if (f == null ? void 0 : f.color) return String(f.color);
     return d.type === "event" ? "#7c5cff" : "#3b82f6";
   };
+  const pays = new Set(by("payments").map((r) => r.id));
   const main = [];
   for (const r of by("items")) {
     const d = r.data;
@@ -467,13 +477,14 @@ function snapshotFromRecords(records, today, now = /* @__PURE__ */ new Date()) {
       rule = null;
     }
     if (rule) {
-      for (const o of expandOccurrences(base, rule, lo, shiftDay(hi, 1))) {
-        main.push({ type, title: String((_a = d.title) != null ? _a : ""), start: o.startAt, due: o.dueAt, done: done.has(`${r.id}|${o.key}`), color: colorOf(d) });
+      for (const o of expandOccurrences(base, rule, type === "task" ? shiftDay(today, -60) : lo, shiftDay(hi, 1))) {
+        main.push({ type, title: String((_a = d.title) != null ? _a : ""), start: o.startAt, due: o.dueAt, done: done.has(`${r.id}|${o.key}`), color: colorOf(d), pay: pays.has(r.id) });
       }
     } else {
       const first = ((_b = base.startAt) != null ? _b : base.dueAt).slice(0, 10);
-      if (base.dueAt.slice(0, 10) < lo || first > hi) continue;
-      main.push({ type, title: String((_c = d.title) != null ? _c : ""), start: base.startAt, due: base.dueAt, done: d.status === "done", color: colorOf(d) });
+      const keepLate = type === "task" && d.status !== "done" && base.dueAt.slice(0, 10) >= shiftDay(today, -60);
+      if (base.dueAt.slice(0, 10) < lo && !keepLate || first > hi) continue;
+      main.push({ type, title: String((_c = d.title) != null ? _c : ""), start: base.startAt, due: base.dueAt, done: d.status === "done", color: colorOf(d), pay: pays.has(r.id) });
     }
   }
   const calendars = by("calendars").map((r) => {

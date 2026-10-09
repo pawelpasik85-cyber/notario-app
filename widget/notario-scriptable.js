@@ -66,7 +66,7 @@ async function rows(tok, query) {
 }
 const ITEM_FIELDS = ['type', 'title', 'due_at', 'start_at', 'recurrence', 'status', 'category_id', 'folder_id', 'deleted_at'];
 async function fetchRecords(tok) {
-  const small = await rows(tok, 'select=tbl,id,data&deleted=eq.false&tbl=in.(categories,folders,calendars,orders,occurrence_states)');
+  const small = await rows(tok, 'select=tbl,id,data&deleted=eq.false&tbl=in.(categories,folders,calendars,orders,occurrence_states,payments)');
   const sel = ['id', ...ITEM_FIELDS.map((f) => `${f}:data->>${f}`)].join(',');
   const items = await rows(tok, `select=${sel}&deleted=eq.false&tbl=eq.items&data->>due_at=not.is.null`);
   for (const it of items) {
@@ -230,6 +230,78 @@ function buildWidget(snap, page, family, note) {
   return w;
 }
 
+// ---------- "Na dziś": today's tasks (Parameter: Zadania / Dziś) ----------
+const isTasksParam = (param) => /^(zadania|dzi[sś]|na dzi[sś]|todo)$/i.test((param || '').trim());
+const DAY_NAMES = ['niedziela', 'poniedziałek', 'wtorek', 'środa', 'czwartek', 'piątek', 'sobota'];
+const MONTHS_GEN = ['stycznia', 'lutego', 'marca', 'kwietnia', 'maja', 'czerwca', 'lipca', 'sierpnia', 'września', 'października', 'listopada', 'grudnia'];
+
+function buildTasksWidget(snap, family, note) {
+  const today = ymd(new Date());
+  const tasks = snap.tasks || { today: [], overdue: [] };
+  const open = tasks.today.filter((t) => !t.done);
+  const doneN = tasks.today.length - open.length;
+  const w = new ListWidget();
+  const g = new LinearGradient();
+  g.colors = [new Color('#22c55e', 0.28), new Color(BG, 1), new Color(BG, 1)];
+  g.locations = [0, 0.45, 1];
+  g.startPoint = new Point(0, 0); g.endPoint = new Point(1, 1);
+  w.backgroundGradient = g;
+  w.setPadding(12, 14, 10, 14);
+  w.url = `scriptable:///run/${encodeURIComponent(Script.name())}?cal=main&day=${today}`;
+  w.refreshAfterDate = new Date(Date.now() + 15 * 60 * 1000);
+
+  const head = w.addStack();
+  head.centerAlignContent();
+  const title = head.addText('✅ Na dziś');
+  title.font = Font.boldSystemFont(family === 'small' ? 14 : 16); title.textColor = Color.white();
+  head.addSpacer();
+  const count = head.addText(open.length ? String(open.length) : '✓');
+  count.font = Font.boldSystemFont(family === 'small' ? 18 : 20); count.textColor = new Color(open.length ? '#ffffff' : '#22c55e');
+  const d = new Date();
+  const sub = w.addText(`${DAY_NAMES[d.getDay()]}, ${d.getDate()} ${MONTHS_GEN[d.getMonth()]}${doneN ? ` · zrobione ${doneN}` : ''}${note ? ` · ${note}` : ''}`);
+  sub.font = Font.systemFont(10.5); sub.textColor = new Color('#aab4c8'); sub.lineLimit = 1;
+  w.addSpacer(family === 'small' ? 5 : 8);
+
+  const max = family === 'small' ? 4 : family === 'medium' ? 5 : 13;
+  const fs = family === 'small' ? 11.5 : 13;
+  let used = 0;
+  const line = (mark, markColor, text, textColor, extra) => {
+    const row = w.addStack();
+    row.centerAlignContent();
+    const m = row.addText(mark); m.font = Font.boldSystemFont(fs); m.textColor = new Color(markColor);
+    row.addSpacer(5);
+    if (extra) { const e = row.addText(extra + ' '); e.font = Font.mediumSystemFont(fs - 1); e.textColor = new Color('#93a3bd'); }
+    const t = row.addText(text); t.font = Font.systemFont(fs); t.textColor = new Color(textColor); t.lineLimit = 1;
+    w.addSpacer(family === 'small' ? 2 : 4);
+    used++;
+  };
+  if (tasks.overdue.length && used < max) {
+    const h = w.addText(`Zaległe (${tasks.overdue.length})`);
+    h.font = Font.boldSystemFont(10.5); h.textColor = new Color('#f87171');
+    w.addSpacer(2);
+    for (const t of tasks.overdue.slice(-(Math.max(1, Math.min(3, max - 1))))) {
+      if (used >= max) break;
+      line('!', '#f87171', `${t.pay ? '💳 ' : ''}${t.t}`, '#fecaca', whenLabel(t.d, today));
+    }
+    if (open.length) w.addSpacer(3);
+  }
+  for (const t of open) {
+    if (used >= max) break;
+    line('○', t.c || '#3b82f6', `${t.pay ? '💳 ' : ''}${t.t}`, '#e8ecf4', t.time);
+  }
+  for (const t of tasks.today.filter((x) => x.done)) {
+    if (used >= max) break;
+    line('✓', '#22c55e', t.t, '#6b7891', t.time);
+  }
+  if (!tasks.today.length && !tasks.overdue.length) {
+    const e = w.addText('Brak zadań na dziś 🎉'); e.font = Font.systemFont(fs); e.textColor = new Color('#aab4c8');
+  } else if (open.length + tasks.overdue.length > used && family !== 'small') {
+    const more = w.addText(`+ jeszcze ${open.length + tasks.overdue.length - used}`); more.font = Font.systemFont(10.5); more.textColor = new Color('#8090a8');
+  }
+  w.addSpacer();
+  return w;
+}
+
 function messageWidget(text) {
   const w = new ListWidget();
   w.backgroundColor = new Color(BG);
@@ -242,8 +314,8 @@ function messageWidget(text) {
 
 // ---------- full-screen preview (opened by tapping the widget) ----------
 // Swipe left / right = the next / previous calendar; ‹ › = month; tap a day = what is on it.
-function viewerHtml(snap, startId) {
-  const data = JSON.stringify({ snap, startId, app: APP_URL }).replace(/</g, '\\u003c');
+function viewerHtml(snap, startId, day) {
+  const data = JSON.stringify({ snap, startId, day: day || null, app: APP_URL }).replace(/</g, '\\u003c');
   return '<!doctype html><html lang="pl"><head><meta charset="utf-8">' +
   '<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">' +
   '<style>' +
@@ -279,7 +351,7 @@ function viewerHtml(snap, startId) {
   '<script>var D=' + data + ';' + VIEWER_JS + '</script></body></html>';
 }
 const VIEWER_JS = `
-var S=D.snap,P=S.pages,today=S.today,cur=Math.max(0,P.findIndex(function(p){return p.id===D.startId})),mo=0,sel=null;
+var S=D.snap,P=S.pages,today=S.today,cur=Math.max(0,P.findIndex(function(p){return p.id===D.startId})),mo=0,sel=D.day||null;
 var MONTHS=['Styczeń','Luty','Marzec','Kwiecień','Maj','Czerwiec','Lipiec','Sierpień','Wrzesień','Październik','Listopad','Grudzień'];
 var WD=['nd','pon','wt','śr','czw','pt','sob'];
 function pad(n){return (n<10?'0':'')+n}
@@ -328,7 +400,7 @@ document.addEventListener('touchend',function(e){if(sx==null)return;var t=e.chan
 render(0);
 `;
 
-async function showViewer(snap, startId) {
+async function showViewer(snap, startId, day) {
   const wv = new WebView();
   wv.shouldAllowRequest = (req) => {
     const u = String(req.url || '');
@@ -340,7 +412,7 @@ async function showViewer(snap, startId) {
     if (u.startsWith('http')) { Safari.open(u); return false; }
     return true;
   };
-  await wv.loadHTML(viewerHtml(snap, startId));
+  await wv.loadHTML(viewerHtml(snap, startId, day));
   await wv.present(true);
 }
 
@@ -374,13 +446,13 @@ async function run(core) {
   }
 
   if (config.runsInWidget) {
-    Script.setWidget(buildWidget(snap, pickPage(snap, args.widgetParameter), family, note));
+    Script.setWidget(isTasksParam(args.widgetParameter) ? buildTasksWidget(snap, family, note) : buildWidget(snap, pickPage(snap, args.widgetParameter), family, note));
     return;
   }
 
   // Run in the app (also when the widget is tapped): the full-screen preview.
   const q = (args.queryParameters || {});
-  await showViewer(snap, q.cal || (snap.pages[0] && snap.pages[0].id));
+  await showViewer(snap, q.cal || (snap.pages[0] && snap.pages[0].id), q.day);
 };
 run.viewerHtml = viewerHtml;
 module.exports = run;
