@@ -37,7 +37,16 @@ async function token() {
   const s = loadSession();
   if (!s) return null;
   if (s.exp > Date.now() + 60000) return s.access;
-  try { return (await auth('/auth/v1/token?grant_type=refresh_token', { refresh_token: s.refresh })).access; } catch (e) { return null; }
+  try { return (await auth('/auth/v1/token?grant_type=refresh_token', { refresh_token: s.refresh })).access; } catch (e) {
+    // Two widgets (e.g. Kalendarz + Zadania) may refresh at the same moment: the other one
+    // may already have saved a new session — use it instead of giving up.
+    const again = loadSession();
+    if (again && again.refresh !== s.refresh) {
+      if (again.exp > Date.now() + 60000) return again.access;
+      try { return (await auth('/auth/v1/token?grant_type=refresh_token', { refresh_token: again.refresh })).access; } catch (e2) { return null; }
+    }
+    return null;
+  }
 }
 async function login() {
   const a = new Alert();
@@ -195,7 +204,7 @@ function buildWidget(snap, page, family, note) {
   w.backgroundGradient = g;
   w.setPadding(12, 12, 10, 12);
   w.url = `scriptable:///run/${encodeURIComponent(Script.name())}?cal=${encodeURIComponent(page.id)}`;
-  w.refreshAfterDate = new Date(Date.now() + 15 * 60 * 1000);
+  w.refreshAfterDate = new Date(Date.now() + 5 * 60 * 1000);
 
   const head = w.addStack();
   head.centerAlignContent();
@@ -209,8 +218,10 @@ function buildWidget(snap, page, family, note) {
     dots.font = Font.systemFont(7); dots.textColor = new Color('#8090a8');
   }
   const t = new Date();
-  const info = w.addText(`${MONTHS[t.getMonth()]} ${t.getFullYear()} · ${page.info || ''}${note ? ` · ${note}` : ''}`);
+  const info = w.addText(`${MONTHS[t.getMonth()]} ${t.getFullYear()} · ${page.info || ''}${note && !note.startsWith('⚠') ? ` · ${note}` : ''}`);
   info.font = Font.systemFont(10); info.textColor = new Color('#aab4c8'); info.lineLimit = 1;
+
+  if (note && note.startsWith('⚠')) { const x = w.addText(note); x.font = Font.boldSystemFont(10); x.textColor = new Color('#fbbf24'); x.lineLimit = 1; }
   w.addSpacer(6);
 
   if (family === 'small') {
@@ -248,7 +259,7 @@ function buildTasksWidget(snap, family, note) {
   w.backgroundGradient = g;
   w.setPadding(12, 14, 10, 14);
   w.url = `scriptable:///run/${encodeURIComponent(Script.name())}?cal=main&day=${today}`;
-  w.refreshAfterDate = new Date(Date.now() + 15 * 60 * 1000);
+  w.refreshAfterDate = new Date(Date.now() + 5 * 60 * 1000);
 
   const head = w.addStack();
   head.centerAlignContent();
@@ -258,8 +269,10 @@ function buildTasksWidget(snap, family, note) {
   const count = head.addText(open.length ? String(open.length) : '✓');
   count.font = Font.boldSystemFont(family === 'small' ? 18 : 20); count.textColor = new Color(open.length ? '#ffffff' : '#22c55e');
   const d = new Date();
-  const sub = w.addText(`${DAY_NAMES[d.getDay()]}, ${d.getDate()} ${MONTHS_GEN[d.getMonth()]}${doneN ? ` · zrobione ${doneN}` : ''}${note ? ` · ${note}` : ''}`);
+  const sub = w.addText(`${DAY_NAMES[d.getDay()]}, ${d.getDate()} ${MONTHS_GEN[d.getMonth()]}${doneN ? ` · zrobione ${doneN}` : ''}${note && !note.startsWith('⚠') ? ` · ${note}` : ''}`);
   sub.font = Font.systemFont(10.5); sub.textColor = new Color('#aab4c8'); sub.lineLimit = 1;
+
+  if (note && note.startsWith('⚠')) { const x = w.addText(note); x.font = Font.boldSystemFont(10); x.textColor = new Color('#fbbf24'); x.lineLimit = 1; }
   w.addSpacer(family === 'small' ? 5 : 8);
 
   const max = family === 'small' ? 4 : family === 'medium' ? 5 : 13;
@@ -437,7 +450,13 @@ async function run(core) {
     } catch (e) { note = 'offline'; }
   }
   if (!snap && fm.fileExists(cachePath)) {
-    try { snap = JSON.parse(fm.readString(cachePath)); note = note || 'zapisane'; } catch (e) { snap = null; }
+    try {
+      snap = JSON.parse(fm.readString(cachePath));
+      const at = new Date(snap.made);
+      const when = `${at.getDate()}.${pad(at.getMonth() + 1)} ${pad(at.getHours())}:${pad(at.getMinutes())}`;
+      // Old data must be obvious (e.g. a deleted event still listed).
+      note = tok ? `⚠ brak sieci, stan z ${when}` : `⚠ nieaktualne (${when}) — uruchom skrypt Notario`;
+    } catch (e) { snap = null; }
   }
   if (!snap) {
     const w = messageWidget(tok ? 'Brak połączenia z serwerem. Spróbuj później.' : 'Otwórz Scriptable i uruchom skrypt „Notario”, aby się zalogować.');
