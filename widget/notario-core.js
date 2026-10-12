@@ -411,6 +411,7 @@ function buildSnapshot(input) {
       const active = all.filter((o) => o.status !== "shipped");
       const isLate = (o) => (o.status === "new" || o.status === "in_progress") && o.dueDate < today;
       for (const o of all) {
+        if (o.status === "shipped") continue;
         const end = o.shipDate && o.shipDate > o.dueDate ? o.shipDate : o.dueDate;
         const c = isLate(o) ? "#ef4444" : (_d = (_c = STATUS_COLOR[o.status]) != null ? _c : cal.color) != null ? _d : "#f97316";
         eachDay(o.startDate, end, lo, hi, (d) => {
@@ -437,7 +438,7 @@ function buildSnapshot(input) {
 }
 function tasksOf(main, today, now) {
   const nowLocal = `${today}T${pad6(now.getHours())}:${pad6(now.getMinutes())}`;
-  const tasks = main.filter((e) => e.type === "task");
+  const tasks = main.filter((e) => e.type === "task" && !e.pay);
   const late = (e) => !e.done && (e.due.length > 10 ? e.due < nowLocal : e.due < today);
   const todays = tasks.filter((e) => e.due.slice(0, 10) === today && !late(e)).sort((a, b) => Number(a.done) - Number(b.done) || (a.due.length > 10 ? a.due : `${a.due}T99`).localeCompare(b.due.length > 10 ? b.due : `${b.due}T99`));
   const overdue = tasks.filter(late).sort((a, b) => a.due.localeCompare(b.due));
