@@ -241,6 +241,34 @@ function daysOffBetween(from, to) {
   return out;
 }
 
+// src/core/services/schedule.ts
+var rep = (c, n) => Array.from({ length: n }, () => c);
+var SCHEDULE_PRESETS = [
+  { key: "5-2", name: "Pon\u2013pt", hint: "5 dni pracy, weekend i \u015Bwi\u0119ta wolne", pattern: [...rep("R", 5), ...rep("W", 2)], holidaysOff: true, monday: true },
+  { key: "5-3", name: "5 / 3", hint: "5 dni pracy, 3 wolne", pattern: [...rep("R", 5), ...rep("W", 3)] },
+  { key: "4-4", name: "4 / 4", hint: "4 dni pracy, 4 wolne", pattern: [...rep("R", 4), ...rep("W", 4)] },
+  { key: "3-3", name: "3 / 3", hint: "3 dni pracy, 3 wolne", pattern: [...rep("R", 3), ...rep("W", 3)] },
+  { key: "2-2", name: "2 / 2", hint: "2 dni pracy, 2 wolne (np. 12 h)", pattern: [...rep("R", 2), ...rep("W", 2)] },
+  { key: "6-2", name: "6 / 2", hint: "6 dni pracy, 2 wolne", pattern: [...rep("R", 6), ...rep("W", 2)] },
+  { key: "DDNN", name: "12 h: 2D 2N 4W", hint: "2 dni, 2 noce, 4 wolne (system czterobrygadowy)", pattern: ["D", "D", "N", "N", "W", "W", "W", "W"] },
+  { key: "DNWW", name: "12 h: D N W W", hint: "dzie\u0144, noc, 2 wolne", pattern: ["D", "N", "W", "W"] },
+  { key: "24-72", name: "Doba / 3 wolne", hint: "24 h dy\u017Curu, potem 3 dni wolnego", pattern: ["R", "W", "W", "W"] }
+];
+var dayNo = (d) => {
+  const [y, m, x] = d.split("-").map(Number);
+  return Math.round(Date.UTC(y, m - 1, x) / 864e5);
+};
+function shiftOn(s, date) {
+  var _a;
+  if (!s || !((_a = s.pattern) == null ? void 0 : _a.length)) return null;
+  const n = s.pattern.length;
+  const i = ((dayNo(date) - dayNo(s.start)) % n + n) % n;
+  const code = s.pattern[i];
+  if (code !== "W" && s.holidaysOff && dayOffOn(date)) return "W";
+  return code;
+}
+var isScheduledWork = (s, date) => shiftOn(s, date) !== "W";
+
 // src/core/services/leave.ts
 var LEAVE_TYPES = [
   { code: "UW", name: "Urlop wypoczynkowy", hint: "20 dni przy sta\u017Cu poni\u017Cej 10 lat, 26 dni od 10 lat (do sta\u017Cu wlicza si\u0119 szko\u0142a)", color: "#22c55e", unit: "work", limit: "uw" },
@@ -269,16 +297,17 @@ function next(date) {
   const t = new Date(Date.UTC(y, m - 1, d + 1));
   return `${t.getUTCFullYear()}-${pad5(t.getUTCMonth() + 1)}-${pad5(t.getUTCDate())}`;
 }
-function counts(type, date) {
-  return type.unit === "calendar" || isWorkday(date);
+function counts(type, date, schedule) {
+  if (type.unit === "calendar") return true;
+  return schedule ? isScheduledWork(schedule, date) : isWorkday(date);
 }
-function countDays(a, from = "0000-01-01", to = "9999-12-31") {
+function countDays(a, from = "0000-01-01", to = "9999-12-31", schedule) {
   const type = LEAVE.get(a.tag);
   if (!type) return 0;
   let n = 0;
   const s = a.startDate > from ? a.startDate : from;
   const e = a.dueDate < to ? a.dueDate : to;
-  for (let d = s; d <= e; d = next(d)) if (counts(type, d)) n++;
+  for (let d = s; d <= e; d = next(d)) if (counts(type, d, schedule)) n++;
   return n;
 }
 function leaveSummary(list, year, settings, today) {
@@ -292,8 +321,8 @@ function leaveSummary(list, year, settings, today) {
     let planned = 0;
     const [f, t] = type.total ? ["0000-01-01", "9999-12-31"] : [from, to];
     for (const a of live.filter((x) => x.tag === type.code)) {
-      used += countDays(a, f, t < today ? t : today);
-      planned += countDays(a, today > f ? next(today) : f, t);
+      used += countDays(a, f, t < today ? t : today, settings == null ? void 0 : settings.schedule);
+      planned += countDays(a, today > f ? next(today) : f, t, settings == null ? void 0 : settings.schedule);
     }
     const limit = type.limit === "uw" ? allowance(settings, year) : (_a = type.limit) != null ? _a : null;
     rows.set(type.code, { type, used, planned, limit, left: limit == null ? null : limit - used - planned });
@@ -342,7 +371,7 @@ function eachDay(from, to, lo, hi, fn) {
 }
 var plural = (n, one, few, many) => n === 1 ? one : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? few : many;
 function buildSnapshot(input) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k;
   const { today } = input;
   const { lo, hi } = widgetRange(today);
   const off = daysOffBetween(lo, hi).map((h) => h.date);
@@ -362,7 +391,8 @@ function buildSnapshot(input) {
     });
   }
   const todayTasks = input.main.filter((e) => e.type === "task" && !e.done && e.due.slice(0, 10) === today).length;
-  const next2 = input.main.filter((e) => e.type === "event" && e.due.slice(0, 10) >= today).sort((a, b) => {
+  const nowL = `${today}T${pad6(((_c = input.now) != null ? _c : /* @__PURE__ */ new Date()).getHours())}:${pad6(((_d = input.now) != null ? _d : /* @__PURE__ */ new Date()).getMinutes())}`;
+  const next2 = input.main.filter((e) => e.type === "event" && (e.due.length > 10 ? e.due >= nowL : e.due.slice(0, 10) >= today)).sort((a, b) => {
     var _a2, _b2;
     return ((_a2 = a.start) != null ? _a2 : a.due).localeCompare((_b2 = b.start) != null ? _b2 : b.due);
   }).slice(0, 4).map((e) => {
@@ -394,7 +424,8 @@ function buildSnapshot(input) {
       for (const o of abs) {
         const type = LEAVE.get(o.tag);
         eachDay(o.startDate, o.dueDate, lo, hi, (d) => {
-          if (!counts(type, d)) return;
+          var _a2;
+          if (!counts(type, d, (_a2 = cal.leave) == null ? void 0 : _a2.schedule)) return;
           push(days, d, { c: type.color, code: type.code });
           add(dayList, d, { t: type.name, c: type.color, s: type.code });
         });
@@ -413,7 +444,7 @@ function buildSnapshot(input) {
       for (const o of all) {
         if (o.status === "shipped") continue;
         const end = o.shipDate && o.shipDate > o.dueDate ? o.shipDate : o.dueDate;
-        const c = isLate(o) ? "#ef4444" : (_d = (_c = STATUS_COLOR[o.status]) != null ? _c : cal.color) != null ? _d : "#f97316";
+        const c = isLate(o) ? "#ef4444" : (_f = (_e = STATUS_COLOR[o.status]) != null ? _e : cal.color) != null ? _f : "#f97316";
         eachDay(o.startDate, end, lo, hi, (d) => {
           push(days, d, { c });
           const s = d === o.dueDate ? "termin" : d === o.shipDate ? "wysy\u0142ka" : d === o.startDate ? "start" : d > o.dueDate ? "do wysy\u0142ki" : "w toku";
@@ -432,9 +463,9 @@ function buildSnapshot(input) {
         };
       });
     }
-    pages.push({ id: cal.id, name: cal.name, icon: (_e = cal.icon) != null ? _e : "\u2B50", color: (_f = cal.color) != null ? _f : "#f97316", kind, days, off, info, next: list, list: dayList });
+    pages.push({ id: cal.id, name: cal.name, icon: (_g = cal.icon) != null ? _g : "\u2B50", color: (_h = cal.color) != null ? _h : "#f97316", kind, days, off, info, next: list, list: dayList });
   }
-  return { v: 1, made: ((_g = input.now) != null ? _g : /* @__PURE__ */ new Date()).toISOString(), today, pages, tasks: (_i = input.tasks) != null ? _i : tasksOf(input.main, today, (_h = input.now) != null ? _h : /* @__PURE__ */ new Date()) };
+  return { v: 1, made: ((_i = input.now) != null ? _i : /* @__PURE__ */ new Date()).toISOString(), today, pages, tasks: (_k = input.tasks) != null ? _k : tasksOf(input.main, today, (_j = input.now) != null ? _j : /* @__PURE__ */ new Date()) };
 }
 function tasksOf(main, today, now) {
   const nowLocal = `${today}T${pad6(now.getHours())}:${pad6(now.getMinutes())}`;
