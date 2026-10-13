@@ -371,7 +371,7 @@ function eachDay(from, to, lo, hi, fn) {
 }
 var plural = (n, one, few, many) => n === 1 ? one : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? few : many;
 function buildSnapshot(input) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m;
   const { today } = input;
   const { lo, hi } = widgetRange(today);
   const off = daysOffBetween(lo, hi).map((h) => h.date);
@@ -416,6 +416,7 @@ function buildSnapshot(input) {
     const all = input.orders.filter((o) => o.calendarId === cal.id && o.status !== "cancelled");
     const days = {};
     const dayList = {};
+    let bars;
     let info;
     let list;
     const kind = cal.kind === "study" || cal.kind === "work" ? cal.kind : "orders";
@@ -441,10 +442,25 @@ function buildSnapshot(input) {
     } else {
       const active = all.filter((o) => o.status !== "shipped");
       const isLate = (o) => (o.status === "new" || o.status === "in_progress") && o.dueDate < today;
+      bars = [];
+      const laneEnd = [];
+      const open = all.filter((o) => o.status !== "shipped").sort((a, b) => a.startDate.localeCompare(b.startDate) || b.dueDate.localeCompare(a.dueDate));
+      for (const o of open) {
+        const end = o.shipDate && o.shipDate > o.dueDate ? o.shipDate : o.dueDate;
+        const c = isLate(o) ? "#ef4444" : (_f = (_e = STATUS_COLOR[o.status]) != null ? _e : cal.color) != null ? _f : "#f97316";
+        if (end >= lo && o.startDate <= hi) {
+          let lane = laneEnd.findIndex((x) => x < o.startDate);
+          if (lane < 0) {
+            lane = laneEnd.length;
+            laneEnd.push(end);
+          } else laneEnd[lane] = end;
+          bars.push({ s: o.startDate, d: o.dueDate, e: end, c, t: `${o.tag ? `${o.tag}: ` : ""}${o.title}`, lane });
+        }
+      }
       for (const o of all) {
         if (o.status === "shipped") continue;
         const end = o.shipDate && o.shipDate > o.dueDate ? o.shipDate : o.dueDate;
-        const c = isLate(o) ? "#ef4444" : (_f = (_e = STATUS_COLOR[o.status]) != null ? _e : cal.color) != null ? _f : "#f97316";
+        const c = isLate(o) ? "#ef4444" : (_h = (_g = STATUS_COLOR[o.status]) != null ? _g : cal.color) != null ? _h : "#f97316";
         eachDay(o.startDate, end, lo, hi, (d) => {
           push(days, d, { c });
           const s = d === o.dueDate ? "termin" : d === o.shipDate ? "wysy\u0142ka" : d === o.startDate ? "start" : d > o.dueDate ? "do wysy\u0142ki" : "w toku";
@@ -463,9 +479,9 @@ function buildSnapshot(input) {
         };
       });
     }
-    pages.push({ id: cal.id, name: cal.name, icon: (_g = cal.icon) != null ? _g : "\u2B50", color: (_h = cal.color) != null ? _h : "#f97316", kind, days, off, info, next: list, list: dayList });
+    pages.push({ id: cal.id, name: cal.name, icon: (_i = cal.icon) != null ? _i : "\u2B50", color: (_j = cal.color) != null ? _j : "#f97316", kind, days, off, info, next: list, list: dayList, ...bars ? { bars } : {} });
   }
-  return { v: 1, made: ((_i = input.now) != null ? _i : /* @__PURE__ */ new Date()).toISOString(), today, pages, tasks: (_k = input.tasks) != null ? _k : tasksOf(input.main, today, (_j = input.now) != null ? _j : /* @__PURE__ */ new Date()) };
+  return { v: 1, made: ((_k = input.now) != null ? _k : /* @__PURE__ */ new Date()).toISOString(), today, pages, tasks: (_m = input.tasks) != null ? _m : tasksOf(input.main, today, (_l = input.now) != null ? _l : /* @__PURE__ */ new Date()) };
 }
 function tasksOf(main, today, now) {
   const nowLocal = `${today}T${pad6(now.getHours())}:${pad6(now.getMinutes())}`;

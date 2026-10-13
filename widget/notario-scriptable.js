@@ -125,7 +125,8 @@ function drawGrid(page, today, size, weeksOnly) {
     const col = cell % 7, row = Math.floor(cell / 7);
     const r = new Rect(cw * col + 1.5, head + ch * row + 1.5, cw - 3, ch - 3);
     const other = !weeksOnly && d.getMonth() !== month;
-    const marks = (page.days && page.days[key]) || [];
+    // Jobs are drawn as bars below (not as coloured days).
+    const marks = page.bars ? [] : (page.days && page.days[key]) || [];
     const m0 = marks[0];
     const isOff = off.has(key);
     const isToday = key === today;
@@ -164,7 +165,45 @@ function drawGrid(page, today, size, weeksOnly) {
       }
     }
   }
+  if (page.bars && page.bars.length) drawBars(ctx, page.bars, start, weeks, head, cw, ch, numSize, weeksOnly ? null : month);
   return ctx.getImage();
+}
+
+/**
+ * Jobs as thin bars, like in the app: solid from start to deadline (a white tick on the
+ * deadline day), dashed on to the shipping day. Each job keeps its own lane.
+ */
+function drawBars(ctx, bars, start, weeks, head, cw, ch, numSize, month) {
+  const lanes = Math.max(...bars.map((b) => b.lane)) + 1;
+  const top = numSize + 7;
+  const room = ch - top - 3;
+  const gap = lanes > 6 ? 1 : 1.5;
+  const h = Math.max(1.5, Math.min(4, (room - gap * (lanes - 1)) / lanes));
+  const dayKey = (w, col) => { const d = new Date(start); d.setDate(start.getDate() + w * 7 + col); return ymd(d); };
+  for (let w = 0; w < weeks; w++) {
+    const w0 = dayKey(w, 0), w6 = dayKey(w, 6);
+    for (const b of bars) {
+      if (b.e < w0 || b.s > w6) continue;
+      const colOf = (k) => (k < w0 ? 0 : k > w6 ? 6 : Math.round((new Date(+k.slice(0, 4), +k.slice(5, 7) - 1, +k.slice(8, 10)) - new Date(+w0.slice(0, 4), +w0.slice(5, 7) - 1, +w0.slice(8, 10))) / 86400000));
+      const y = head + ch * w + top + b.lane * (h + gap);
+      if (y + h > head + ch * (w + 1)) continue;
+      const solidTo = b.d < w0 ? -1 : colOf(b.d);
+      const a = colOf(b.s);
+      if (solidTo >= a) {
+        const x0 = cw * a + (b.s >= w0 ? 2 : 0), x1 = cw * (solidTo + 1) - (b.d <= w6 ? 2 : 0);
+        const p = new Path(); p.addRoundedRect(new Rect(x0, y, Math.max(2, x1 - x0), h), h / 2, h / 2);
+        ctx.addPath(p); ctx.setFillColor(new Color(b.c)); ctx.fillPath();
+        if (b.d >= w0 && b.d <= w6) { ctx.setFillColor(new Color('#ffffff', 0.95)); ctx.fillRect(new Rect(x1 - 2, y, 2, h)); }
+      }
+      if (b.e > b.d) {
+        const from = Math.max(solidTo + 1, a);
+        const to = colOf(b.e);
+        for (let x = cw * from; x < cw * (to + 1) - 2; x += 5) {
+          ctx.setFillColor(new Color(b.c, 0.75)); ctx.fillRect(new Rect(x, y, 3, h));
+        }
+      }
+    }
+  }
 }
 
 function whenLabel(d, today) {
@@ -351,6 +390,11 @@ function viewerHtml(snap, startId, day) {
   '.d.code{background:var(--m)}.d.code span{color:#fff}.d i{font-style:normal;font-size:10px;font-weight:800;color:#fff;background:var(--m);border-radius:5px;padding:2px 4px;line-height:1}' +
   '.d.tint{background:color-mix(in srgb,var(--m) 26%,rgba(255,255,255,.03))}' +
   '.dt{display:flex;gap:3px}.dt em{width:5px;height:5px;border-radius:50%}' +
+  '.wk{position:relative;display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-top:3px}.wk .d{height:var(--rh)}' +
+  '.bars{position:absolute;inset:0;pointer-events:none}.bar{position:absolute;height:4px;border-radius:3px;background:var(--c)}' +
+  '.bar.cl{border-top-left-radius:0;border-bottom-left-radius:0}.bar.cr{border-top-right-radius:0;border-bottom-right-radius:0}' +
+  '.bar.due::after{content:"";position:absolute;right:0;top:0;width:3px;height:4px;background:#fff;border-radius:0 3px 3px 0}' +
+  '.bar.ship{background:repeating-linear-gradient(90deg,var(--c) 0 4px,transparent 4px 7px);opacity:.8}' +
   'h3{font-size:15px;margin:16px 0 8px}' +
   '.row{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:12px;background:rgba(255,255,255,.04);border-left:4px solid var(--c);margin-bottom:6px}' +
   '.row small{color:#93a3bd;display:block;font-size:12px}.row .w{min-width:62px;color:#93a3bd;font-size:12.5px}' +
@@ -381,16 +425,33 @@ function render(dir){
   var off={};(p.off||[]).forEach(function(d){off[d]=1});
   var h='<h1>'+esc(p.icon)+' '+esc(p.name)+'</h1><div class="info">'+esc(p.info)+'</div>';
   h+='<div class="mh"><h2>'+MONTHS[m]+' '+t.getFullYear()+'</h2><button id="pm" '+(mo<=0?'disabled':'')+'>‹</button><button id="nm" '+(mo>=1?'disabled':'')+'>›</button></div>';
-  h+='<div class="grid">'+['Pn','Wt','Śr','Cz','Pt','So','Nd'].map(function(x){return '<div class="dow">'+x+'</div>'}).join('');
-  for(var k=0;k<weeks*7;k++){
-    var d=new Date(t.getFullYear(),m,1-lead+k),key=ymd(d),mk=(p.days&&p.days[key])||[],m0=mk[0],cls='d';
-    if(d.getMonth()!==m)cls+=' o';if(k%7>=5)cls+=' we';if(off[key])cls+=' off';if(key===today)cls+=' t';if(key===sel)cls+=' sel';
-    var inner='<span>'+d.getDate()+'</span>',st='';
-    if(m0&&m0.code){cls+=' code';st=' style="--m:'+m0.c+'"';inner+='<i>'+esc(m0.code)+'</i>'}
-    else if(m0){cls+=' tint';st=' style="--m:'+m0.c+'"';inner+='<div class="dt">'+mk.slice(0,3).map(function(x){return '<em style="background:'+x.c+'"></em>'}).join('')+'</div>'}
-    h+='<button class="'+cls+'"'+st+' data-d="'+key+'">'+inner+'</button>';
+  h+='<div class="grid">'+['Pn','Wt','Śr','Cz','Pt','So','Nd'].map(function(x){return '<div class="dow">'+x+'</div>'}).join('')+'</div>';
+  // Jobs (Zlecenia…) are drawn as bars on their own lanes, like in the app; other calendars colour the days.
+  var B=p.bars||null,lanes=B&&B.length?Math.max.apply(null,B.map(function(b){return b.lane}))+1:0,rowH=B?Math.max(48,30+lanes*6+4):48;
+  for(var w=0;w<weeks;w++){
+    var w0=ymd(new Date(t.getFullYear(),m,1-lead+w*7)),w6=ymd(new Date(t.getFullYear(),m,1-lead+w*7+6));
+    h+='<div class="wk" style="--rh:'+rowH+'px">';
+    for(var c=0;c<7;c++){
+      var k=w*7+c,d=new Date(t.getFullYear(),m,1-lead+k),key=ymd(d),mk=B?[]:((p.days&&p.days[key])||[]),m0=mk[0],cls='d';
+      if(d.getMonth()!==m)cls+=' o';if(c>=5)cls+=' we';if(off[key])cls+=' off';if(key===today)cls+=' t';if(key===sel)cls+=' sel';
+      var inner='<span>'+d.getDate()+'</span>',st='';
+      if(m0&&m0.code){cls+=' code';st=' style="--m:'+m0.c+'"';inner+='<i>'+esc(m0.code)+'</i>'}
+      else if(m0){cls+=' tint';st=' style="--m:'+m0.c+'"';inner+='<div class="dt">'+mk.slice(0,3).map(function(x){return '<em style="background:'+x.c+'"></em>'}).join('')+'</div>'}
+      h+='<button class="'+cls+'"'+st+' data-d="'+key+'">'+inner+'</button>';
+    }
+    if(B){
+      h+='<div class="bars">';
+      var col=function(k){return k<w0?0:k>w6?6:Math.round((new Date(+k.slice(0,4),+k.slice(5,7)-1,+k.slice(8,10))-new Date(+w0.slice(0,4),+w0.slice(5,7)-1,+w0.slice(8,10)))/864e5)};
+      B.forEach(function(b){
+        if(b.e<w0||b.s>w6)return;
+        var a=col(b.s),top=28+b.lane*6,due=b.d<w0?-1:col(b.d);
+        if(due>=a)h+='<i class="bar'+(b.s<w0?' cl':'')+(b.d>w6?' cr':'')+(b.d>=w0&&b.d<=w6?' due':'')+'" style="left:calc('+(a/7*100)+'% + 2px);width:calc('+((due-a+1)/7*100)+'% - 4px);top:'+top+'px;--c:'+b.c+'" title="'+esc(b.t)+'"></i>';
+        if(b.e>b.d){var f=Math.max(due+1,a),e=col(b.e);h+='<i class="bar ship" style="left:'+(f/7*100)+'%;width:calc('+((e-f+1)/7*100)+'% - 2px);top:'+top+'px;--c:'+b.c+'"></i>'}
+      });
+      h+='</div>';
+    }
+    h+='</div>';
   }
-  h+='</div>';
   var rows;
   if(sel){var l=(p.list&&p.list[sel])||[];h+='<h3>'+when(sel)+'</h3>';rows=l.map(function(e){return '<div class="row" style="--c:'+e.c+'"><div>'+(e.time?'<b>'+e.time+'</b> ':'')+esc(e.t)+(e.s?'<small>'+esc(e.s)+'</small>':'')+'</div></div>'}).join('')||'<p class="empty">Nic tego dnia.</p>'}
   else{h+='<h3>Najbliższe</h3>';rows=(p.next||[]).filter(function(e){return e.d>=today}).map(function(e){return '<div class="row" style="--c:'+e.c+'"><span class="w">'+when(e.d)+(e.time?'<br>'+e.time:'')+'</span><div>'+(e.s?esc(e.s)+': ':'')+esc(e.t)+'</div></div>'}).join('')||'<p class="empty">Nic zaplanowanego.</p>'}
