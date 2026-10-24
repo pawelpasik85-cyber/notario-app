@@ -7,7 +7,7 @@
  *   under the same name, so the cache is always correct.
  * Data never goes through here: notes live in the device's IndexedDB.
  */
-const CACHE = 'notario-v5';
+const CACHE = 'notario-v6';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './apple-touch-icon.png', './icon-192.png'];
 
 self.addEventListener('install', (event) => {
@@ -35,7 +35,9 @@ self.addEventListener('fetch', (event) => {
       fetch(req)
         .then((res) => {
           // Only the app page itself is kept for offline use.
-          if (res.ok && (res.headers.get('content-type') || '').includes('text/html')) {
+          const scope = new URL(self.registration.scope).pathname;
+          const isApp = url.pathname === scope || url.pathname === `${scope}index.html`;
+          if (isApp && res.ok && (res.headers.get('content-type') || '').includes('text/html')) {
             const copy = res.clone();
             caches.open(CACHE).then((c) => c.put('./index.html', copy));
           }
