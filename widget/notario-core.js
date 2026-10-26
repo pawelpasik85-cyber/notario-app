@@ -412,7 +412,7 @@ function buildSnapshot(input) {
     next: next2,
     list: mainList
   }];
-  for (const cal of input.calendars) {
+  for (const cal of input.calendars.filter((c) => c.kind !== "crew")) {
     const all = input.orders.filter((o) => o.calendarId === cal.id && o.status !== "cancelled");
     const days = {};
     const dayList = {};
