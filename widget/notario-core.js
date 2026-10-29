@@ -328,24 +328,27 @@ function leaveSummary(list, year, settings, today) {
       used += countDays(a, f, t < today ? t : today, settings == null ? void 0 : settings.schedule);
       planned += countDays(a, today > f ? next(today) : f, t, settings == null ? void 0 : settings.schedule);
     }
-    const carry2 = type.limit === "uw" ? carryOf(settings, year) : 0;
-    const limit = type.limit === "uw" ? allowance(settings, year) + carry2 : (_a = type.limit) != null ? _a : null;
+    const limit = type.limit === "uw" ? allowance(settings, year) : (_a = type.limit) != null ? _a : null;
     rows.set(type.code, { type, used, planned, limit, left: limit == null ? null : limit - used - planned });
   }
   const uwRow = rows.get("UW");
   const carry = carryOf(settings, year);
+  let fromCarry = 0;
   if (carry > 0) {
     const until = `${year}-09-30`;
     const kinds = live.filter((a) => a.tag === "UW" || a.tag === "U\u017B");
-    const byEnd = kinds.reduce((n, a) => n + countDays(a, from, until, settings == null ? void 0 : settings.schedule), 0);
-    const all = kinds.reduce((n, a) => n + countDays(a, from, to, settings == null ? void 0 : settings.schedule), 0);
-    const inTime = Math.min(carry, byEnd);
-    uwRow.carry = { days: carry, left: carry - Math.min(carry, all), until, late: Math.min(carry, all) - inTime };
+    const doneTo = until < today ? until : today;
+    const usedBy = doneTo >= from ? kinds.reduce((n, a) => n + countDays(a, from, doneTo, settings == null ? void 0 : settings.schedule), 0) : 0;
+    const allBy = kinds.reduce((n, a) => n + countDays(a, from, until, settings == null ? void 0 : settings.schedule), 0);
+    const used = Math.min(carry, usedBy);
+    const planned = Math.min(carry - used, allBy - usedBy);
+    fromCarry = used + planned;
+    uwRow.carry = { days: carry, used, planned, left: carry - fromCarry, until };
   }
   for (const part of LEAVE_TYPES.filter((t) => t.partOf)) {
     const whole = rows.get(part.partOf);
     const own = rows.get(part.code);
-    whole.left = whole.left - own.used - own.planned;
+    whole.left = whole.left - own.used - own.planned + (whole === uwRow ? fromCarry : 0);
     own.left = Math.min(own.left, Math.max(0, whole.left));
   }
   return [...rows.values()];
