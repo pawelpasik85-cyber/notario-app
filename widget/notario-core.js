@@ -328,12 +328,11 @@ function leaveSummary(list, year, settings, today) {
       used += countDays(a, f, t < today ? t : today, settings == null ? void 0 : settings.schedule);
       planned += countDays(a, today > f ? next(today) : f, t, settings == null ? void 0 : settings.schedule);
     }
-    const limit = type.limit === "uw" ? allowance(settings, year) : (_a = type.limit) != null ? _a : null;
+    const limit = type.limit === "uw" ? allowance(settings, year) + carryOf(settings, year) : (_a = type.limit) != null ? _a : null;
     rows.set(type.code, { type, used, planned, limit, left: limit == null ? null : limit - used - planned });
   }
   const uwRow = rows.get("UW");
   const carry = carryOf(settings, year);
-  let fromCarry = 0;
   if (carry > 0) {
     const until = `${year}-09-30`;
     const kinds = live.filter((a) => a.tag === "UW" || a.tag === "U\u017B");
@@ -342,13 +341,12 @@ function leaveSummary(list, year, settings, today) {
     const allBy = kinds.reduce((n, a) => n + countDays(a, from, until, settings == null ? void 0 : settings.schedule), 0);
     const used = Math.min(carry, usedBy);
     const planned = Math.min(carry - used, allBy - usedBy);
-    fromCarry = used + planned;
-    uwRow.carry = { days: carry, used, planned, left: carry - fromCarry, until };
+    uwRow.carry = { days: carry, used, planned, left: carry - used - planned, until };
   }
   for (const part of LEAVE_TYPES.filter((t) => t.partOf)) {
     const whole = rows.get(part.partOf);
     const own = rows.get(part.code);
-    whole.left = whole.left - own.used - own.planned + (whole === uwRow ? fromCarry : 0);
+    whole.left = whole.left - own.used - own.planned;
     own.left = Math.min(own.left, Math.max(0, whole.left));
   }
   return [...rows.values()];

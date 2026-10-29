@@ -1,4 +1,4 @@
-import{n as A,i as O,N as k,a as kt,V as p,P as Me,b as K,e as ft,c as v,l as ce,t as re,d as Fe,f as q,g as Mt,p as Ft,h as bt,j as Nt,k as Wt,m as Ge,o as Ht,q as Xt,S as $t}from"./index-Bjcq7Bgh.js";function xt(e){let t=0;return function(s){const c=`sp_${t}`;e.exec(t===0?"BEGIN IMMEDIATE":`SAVEPOINT ${c}`),t++;try{const u=s();return t--,e.exec(t===0?"COMMIT":`RELEASE ${c}`),u}catch(u){throw t--,e.exec(t===0?"ROLLBACK":`ROLLBACK TO ${c}; RELEASE ${c}`),u}}}function Pt(e){e.exec(`
+import{n as A,i as O,N as k,a as kt,V as p,P as Me,b as K,e as ft,c as v,l as ce,t as re,d as Fe,f as q,g as Mt,p as Ft,h as bt,j as Nt,k as Wt,m as Ge,o as Ht,q as Xt,S as $t}from"./index-CtADIBev.js";function xt(e){let t=0;return function(s){const c=`sp_${t}`;e.exec(t===0?"BEGIN IMMEDIATE":`SAVEPOINT ${c}`),t++;try{const u=s();return t--,e.exec(t===0?"COMMIT":`RELEASE ${c}`),u}catch(u){throw t--,e.exec(t===0?"ROLLBACK":`ROLLBACK TO ${c}; RELEASE ${c}`),u}}}function Pt(e){e.exec(`
     PRAGMA journal_mode = WAL;
     PRAGMA synchronous = NORMAL;
     PRAGMA foreign_keys = ON;
@@ -414,7 +414,7 @@ CREATE TABLE settings (
 );
 
 `},{version:2,name:"sync: spaces and change log",sql:Bt()},{version:3,name:"goals",sql:Gt()},{version:4,name:"calendars and orders",sql:jt()},{version:5,name:"student calendars and timetable",sql:Yt()},{version:6,name:"calendar logo and brand colours",sql:Zt()},{version:7,name:"work calendars: leave allowance",sql:Vt()},{version:8,name:"order costs",sql:Kt()},{version:9,name:"payments are tasks",sql:`UPDATE items SET type = 'task', status = COALESCE(status, 'todo'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-          WHERE type <> 'task' AND id IN (SELECT item_id FROM payments);`},{version:10,name:"password vault",sql:Jt()},{version:11,name:"shopping lists",sql:qt()},{version:12,name:"payment kind",sql:Qt()},{version:13,name:"order shipping method",sql:en()},{version:14,name:"flight crew calendars",sql:tn()},{version:15,name:"appointments",sql:sn()},{version:16,name:"visit services",sql:nn()},{version:17,name:"visit staff",sql:rn()}],an=`
+          WHERE type <> 'task' AND id IN (SELECT item_id FROM payments);`},{version:10,name:"password vault",sql:Jt()},{version:11,name:"shopping lists",sql:qt()},{version:12,name:"payment kind",sql:Qt()},{version:13,name:"order shipping method",sql:en()},{version:14,name:"flight crew calendars",sql:tn()},{version:15,name:"appointments",sql:sn()},{version:16,name:"visit services",sql:nn()},{version:17,name:"visit staff",sql:rn()},{version:18,name:"work calendar renamed",sql:"UPDATE calendars SET name = 'Log pracy' WHERE kind = 'work' AND name = 'Praca';"}],an=`
 -- Full-text search ------------------------------------------------------------
 CREATE VIRTUAL TABLE items_fts USING fts5(
   item_id UNINDEXED,
