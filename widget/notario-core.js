@@ -285,6 +285,10 @@ var LEAVE_TYPES = [
   { code: "UB", name: "Urlop bezp\u0142atny", hint: "Na wniosek, bez limitu; liczony w dniach kalendarzowych", color: "#64748b", unit: "calendar" }
 ];
 var LEAVE = new Map(LEAVE_TYPES.map((t) => [t.code, t]));
+var carryOf = (s, year) => {
+  var _a, _b;
+  return (_b = (_a = s == null ? void 0 : s.carry) == null ? void 0 : _a[String(year)]) != null ? _b : 0;
+};
 var DEFAULT_LEAVE = { uw: 26 };
 function allowance(s, year) {
   var _a, _b;
@@ -324,8 +328,19 @@ function leaveSummary(list, year, settings, today) {
       used += countDays(a, f, t < today ? t : today, settings == null ? void 0 : settings.schedule);
       planned += countDays(a, today > f ? next(today) : f, t, settings == null ? void 0 : settings.schedule);
     }
-    const limit = type.limit === "uw" ? allowance(settings, year) : (_a = type.limit) != null ? _a : null;
+    const carry2 = type.limit === "uw" ? carryOf(settings, year) : 0;
+    const limit = type.limit === "uw" ? allowance(settings, year) + carry2 : (_a = type.limit) != null ? _a : null;
     rows.set(type.code, { type, used, planned, limit, left: limit == null ? null : limit - used - planned });
+  }
+  const uwRow = rows.get("UW");
+  const carry = carryOf(settings, year);
+  if (carry > 0) {
+    const until = `${year}-09-30`;
+    const kinds = live.filter((a) => a.tag === "UW" || a.tag === "U\u017B");
+    const byEnd = kinds.reduce((n, a) => n + countDays(a, from, until, settings == null ? void 0 : settings.schedule), 0);
+    const all = kinds.reduce((n, a) => n + countDays(a, from, to, settings == null ? void 0 : settings.schedule), 0);
+    const inTime = Math.min(carry, byEnd);
+    uwRow.carry = { days: carry, left: carry - Math.min(carry, all), until, late: Math.min(carry, all) - inTime };
   }
   for (const part of LEAVE_TYPES.filter((t) => t.partOf)) {
     const whole = rows.get(part.partOf);
