@@ -7,7 +7,7 @@
  *   under the same name, so the cache is always correct.
  * Data never goes through here: notes live in the device's IndexedDB.
  */
-const CACHE = 'notario-v6';
+const CACHE = 'notario-v7';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './apple-touch-icon.png', './icon-192.png'];
 
 self.addEventListener('install', (event) => {
@@ -67,16 +67,18 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const itemId = event.notification.data && event.notification.data.itemId;
   const cal = event.notification.data && event.notification.data.cal;
+  const folder = event.notification.data && event.notification.data.folder;
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
       for (const c of list) {
         if ('focus' in c) {
-          if (itemId) c.postMessage({ type: 'notario-open', itemId });
+          if (folder) c.postMessage({ type: 'notario-folder', folder });
+          else if (itemId) c.postMessage({ type: 'notario-open', itemId });
           else if (cal) c.postMessage({ type: 'notario-cal', cal });
           return c.focus();
         }
       }
-      return self.clients.openWindow(itemId ? `./#open=${itemId}` : cal ? `./?cal=${encodeURIComponent(cal)}` : './');
+      return self.clients.openWindow(folder ? `./#folder=${folder}` : itemId ? `./#open=${itemId}` : cal ? `./?cal=${encodeURIComponent(cal)}` : './');
     }),
   );
 });
@@ -86,6 +88,6 @@ self.addEventListener('push', (event) => {
   let d = {};
   try { d = event.data ? event.data.json() : {}; } catch { d = { title: event.data && event.data.text() }; }
   event.waitUntil(self.registration.showNotification(d.title || 'Notario', {
-    body: d.body || '', tag: d.tag, icon: './icon-192.png', badge: './icon-192.png', data: { itemId: d.itemId || null, cal: d.cal || null },
+    body: d.body || '', tag: d.tag, icon: './icon-192.png', badge: './icon-192.png', data: { itemId: d.itemId || null, cal: d.cal || null, folder: d.folder || null },
   }));
 });
